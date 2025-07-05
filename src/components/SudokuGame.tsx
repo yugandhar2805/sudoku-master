@@ -1,249 +1,265 @@
 
-import React, { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Sparkles, RotateCcw } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import TopBar from './TopBar';
+import SudokuGrid from './SudokuGrid';
+import NumberPad from './NumberPad';
+import GameControls from './GameControls';
 
-type GridSize = 2 | 3;
 type SudokuGrid = (number | null)[][];
 
+interface GameMove {
+  row: number;
+  col: number;
+  previousValue: number | null;
+  newValue: number | null;
+}
+
 const SudokuGame = () => {
-  const [gridSize, setGridSize] = useState<GridSize>(2);
   const [grid, setGrid] = useState<SudokuGrid>([]);
   const [initialGrid, setInitialGrid] = useState<SudokuGrid>([]);
   const [selectedCell, setSelectedCell] = useState<{row: number, col: number} | null>(null);
   const [isComplete, setIsComplete] = useState(false);
+  const [time, setTime] = useState(0);
+  const [isActive, setIsActive] = useState(false);
+  const [moves, setMoves] = useState<GameMove[]>([]);
+  const [difficulty] = useState('Medium');
 
-  // Generate a valid Sudoku puzzle
-  const generatePuzzle = (size: GridSize): { puzzle: SudokuGrid, solution: SudokuGrid } => {
-    const createEmptyGrid = (): SudokuGrid => 
-      Array(size).fill(null).map(() => Array(size).fill(null));
-
-    // For 2x2, create a simple valid puzzle
-    if (size === 2) {
-      const puzzle: SudokuGrid = [
-        [1, null],
-        [null, 2]
-      ];
-      const solution: SudokuGrid = [
-        [1, 2],
-        [2, 1]
-      ];
-      return { puzzle, solution };
-    }
-
-    // For 3x3, create a more complex puzzle
+  // Generate a sample Sudoku puzzle
+  const generatePuzzle = (): { puzzle: SudokuGrid, solution: SudokuGrid } => {
+    // This is a simplified puzzle generator - in a real app, you'd want a proper algorithm
     const puzzle: SudokuGrid = [
-      [1, null, 3],
-      [null, 2, null],
-      [3, null, 1]
+      [5, 3, null, null, 7, null, null, null, null],
+      [6, null, null, 1, 9, 5, null, null, null],
+      [null, 9, 8, null, null, null, null, 6, null],
+      [8, null, null, null, 6, null, null, null, 3],
+      [4, null, null, 8, null, 3, null, null, 1],
+      [7, null, null, null, 2, null, null, null, 6],
+      [null, 6, null, null, null, null, 2, 8, null],
+      [null, null, null, 4, 1, 9, null, null, 5],
+      [null, null, null, null, 8, null, null, 7, 9]
     ];
+
     const solution: SudokuGrid = [
-      [1, 2, 3],
-      [3, 2, 1],
-      [3, 1, 1]
+      [5, 3, 4, 6, 7, 8, 9, 1, 2],
+      [6, 7, 2, 1, 9, 5, 3, 4, 8],
+      [1, 9, 8, 3, 4, 2, 5, 6, 7],
+      [8, 5, 9, 7, 6, 1, 4, 2, 3],
+      [4, 2, 6, 8, 5, 3, 7, 9, 1],
+      [7, 1, 3, 9, 2, 4, 8, 5, 6],
+      [9, 6, 1, 5, 3, 7, 2, 8, 4],
+      [2, 8, 7, 4, 1, 9, 6, 3, 5],
+      [3, 4, 5, 2, 8, 6, 1, 7, 9]
     ];
+
     return { puzzle, solution };
+  };
+
+  // Timer effect
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isActive && !isComplete) {
+      interval = setInterval(() => {
+        setTime(time => time + 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isActive, isComplete]);
+
+  // Format time display
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
   // Initialize game
   useEffect(() => {
-    const { puzzle } = generatePuzzle(gridSize);
+    const { puzzle } = generatePuzzle();
     setGrid(puzzle.map(row => [...row]));
     setInitialGrid(puzzle.map(row => [...row]));
     setIsComplete(false);
     setSelectedCell(null);
-  }, [gridSize]);
+    setMoves([]);
+    setTime(0);
+    setIsActive(true);
+  }, []);
 
-  // Check if the current grid is valid and complete
-  const checkWin = (currentGrid: SudokuGrid): boolean => {
-    // Check if all cells are filled
-    for (let row of currentGrid) {
-      for (let cell of row) {
-        if (cell === null) return false;
-      }
+  // Validation functions
+  const isValidMove = (grid: SudokuGrid, row: number, col: number, num: number): boolean => {
+    // Check row
+    for (let i = 0; i < 9; i++) {
+      if (i !== col && grid[row][i] === num) return false;
     }
 
-    // Check rows
-    for (let row of currentGrid) {
-      const seen = new Set();
-      for (let num of row) {
-        if (seen.has(num)) return false;
-        seen.add(num);
-      }
+    // Check column
+    for (let i = 0; i < 9; i++) {
+      if (i !== row && grid[i][col] === num) return false;
     }
 
-    // Check columns
-    for (let col = 0; col < gridSize; col++) {
-      const seen = new Set();
-      for (let row = 0; row < gridSize; row++) {
-        const num = currentGrid[row][col];
-        if (seen.has(num)) return false;
-        seen.add(num);
+    // Check 3x3 box
+    const boxRow = Math.floor(row / 3) * 3;
+    const boxCol = Math.floor(col / 3) * 3;
+    for (let i = boxRow; i < boxRow + 3; i++) {
+      for (let j = boxCol; j < boxCol + 3; j++) {
+        if ((i !== row || j !== col) && grid[i][j] === num) return false;
       }
     }
 
     return true;
   };
 
+  // Check if puzzle is complete
+  const checkWin = (currentGrid: SudokuGrid): boolean => {
+    for (let row = 0; row < 9; row++) {
+      for (let col = 0; col < 9; col++) {
+        if (currentGrid[row][col] === null) return false;
+      }
+    }
+    return true;
+  };
+
   // Handle cell click
   const handleCellClick = (row: number, col: number) => {
-    if (initialGrid[row][col] !== null) return; // Can't modify initial numbers
+    if (initialGrid[row][col] !== null || isComplete) return;
     setSelectedCell({ row, col });
   };
 
   // Handle number input
   const handleNumberInput = (number: number) => {
-    if (!selectedCell) return;
+    if (!selectedCell || isComplete) return;
     
+    const { row, col } = selectedCell;
+    
+    if (!isValidMove(grid, row, col, number)) {
+      toast({
+        title: "Invalid Move",
+        description: "This number conflicts with existing numbers in the row, column, or box.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const newGrid = grid.map(row => [...row]);
-    newGrid[selectedCell.row][selectedCell.col] = number;
+    const previousValue = newGrid[row][col];
+    newGrid[row][col] = number;
+    
+    // Add move to history
+    setMoves(prev => [...prev, { row, col, previousValue, newValue: number }]);
+    
     setGrid(newGrid);
 
-    // Check for win condition
+    // Check for win
     if (checkWin(newGrid)) {
       setIsComplete(true);
+      setIsActive(false);
       toast({
         title: "🎉 Congratulations!",
-        description: "You've completed the Sudoku puzzle!",
+        description: `You've completed the Sudoku puzzle in ${formatTime(time)}!`,
       });
     }
   };
 
-  // Clear selected cell
-  const clearCell = () => {
-    if (!selectedCell) return;
+  // Handle undo
+  const handleUndo = () => {
+    if (moves.length === 0) return;
     
+    const lastMove = moves[moves.length - 1];
     const newGrid = grid.map(row => [...row]);
-    newGrid[selectedCell.row][selectedCell.col] = null;
+    newGrid[lastMove.row][lastMove.col] = lastMove.previousValue;
+    
+    setGrid(newGrid);
+    setMoves(prev => prev.slice(0, -1));
+    setIsComplete(false);
+    if (!isActive) setIsActive(true);
+  };
+
+  // Handle erase
+  const handleErase = () => {
+    if (!selectedCell || isComplete) return;
+    
+    const { row, col } = selectedCell;
+    const newGrid = grid.map(row => [...row]);
+    const previousValue = newGrid[row][col];
+    newGrid[row][col] = null;
+    
+    // Add move to history
+    setMoves(prev => [...prev, { row, col, previousValue, newValue: null }]);
+    
     setGrid(newGrid);
   };
 
-  // Reset game
-  const resetGame = () => {
-    setGrid(initialGrid.map(row => [...row]));
+  // Handle hint (simplified)
+  const handleHint = () => {
+    if (!selectedCell || isComplete) return;
+    
+    toast({
+      title: "Hint",
+      description: "Try checking if this number appears elsewhere in the same row, column, or 3x3 box!",
+    });
+  };
+
+  // Handle restart
+  const handleRestart = () => {
+    const { puzzle } = generatePuzzle();
+    setGrid(puzzle.map(row => [...row]));
+    setInitialGrid(puzzle.map(row => [...row]));
     setIsComplete(false);
     setSelectedCell(null);
+    setMoves([]);
+    setTime(0);
+    setIsActive(true);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4">
-      <div className="max-w-md mx-auto space-y-6">
-        {/* Header */}
-        <div className="text-center space-y-4">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-            Sudoku Game
-          </h1>
-          
-          {/* Grid Size Selection */}
-          <div className="flex gap-2 justify-center">
-            <Button
-              variant={gridSize === 2 ? "default" : "outline"}
-              onClick={() => setGridSize(2)}
-              className="bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600"
-            >
-              2×2
-            </Button>
-            <Button
-              variant={gridSize === 3 ? "default" : "outline"}
-              onClick={() => setGridSize(3)}
-              className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
-            >
-              3×3
-            </Button>
-          </div>
-        </div>
-
-        {/* Game Board */}
-        <Card className="shadow-2xl border-0 bg-white/80 backdrop-blur-sm">
-          <CardHeader className="text-center pb-4">
-            <CardTitle className="flex items-center justify-center gap-2">
-              {isComplete && <Sparkles className="text-yellow-500" />}
-              {gridSize}×{gridSize} Sudoku
-              {isComplete && <Sparkles className="text-yellow-500" />}
-            </CardTitle>
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-purple-50 p-4">
+      <div className="max-w-2xl mx-auto">
+        <TopBar time={formatTime(time)} difficulty={difficulty} />
+        
+        <Card className="shadow-xl border-0 bg-white/90 backdrop-blur-sm">
+          <CardContent className="p-6">
             {isComplete && (
-              <Badge className="bg-gradient-to-r from-green-500 to-emerald-500 text-white">
-                Completed!
-              </Badge>
-            )}
-          </CardHeader>
-          
-          <CardContent className="space-y-6">
-            {/* Sudoku Grid */}
-            <div 
-              className={`grid gap-2 mx-auto w-fit p-4 bg-gradient-to-br from-gray-100 to-gray-200 rounded-xl shadow-inner`}
-              style={{ gridTemplateColumns: `repeat(${gridSize}, 1fr)` }}
-            >
-              {grid.map((row, rowIndex) =>
-                row.map((cell, colIndex) => (
-                  <button
-                    key={`${rowIndex}-${colIndex}`}
-                    onClick={() => handleCellClick(rowIndex, colIndex)}
-                    disabled={initialGrid[rowIndex][colIndex] !== null || isComplete}
-                    className={`
-                      w-16 h-16 border-2 rounded-lg font-bold text-xl transition-all duration-200
-                      ${selectedCell?.row === rowIndex && selectedCell?.col === colIndex
-                        ? 'border-blue-500 bg-blue-100 shadow-lg scale-105'
-                        : 'border-gray-300 bg-white hover:bg-gray-50 hover:border-gray-400'
-                      }
-                      ${initialGrid[rowIndex][colIndex] !== null
-                        ? 'bg-gradient-to-br from-indigo-100 to-blue-100 text-indigo-700 cursor-not-allowed'
-                        : 'hover:shadow-md active:scale-95'
-                      }
-                      ${isComplete ? 'bg-gradient-to-br from-green-100 to-emerald-100 text-green-700' : ''}
-                    `}
-                  >
-                    {cell || ''}
-                  </button>
-                ))
-              )}
-            </div>
-
-            {/* Number Input Buttons */}
-            {!isComplete && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-3 gap-2">
-                  {Array.from({ length: gridSize }, (_, i) => i + 1).map(number => (
-                    <Button
-                      key={number}
-                      onClick={() => handleNumberInput(number)}
-                      disabled={!selectedCell}
-                      variant="outline"
-                      className="h-12 text-lg font-semibold bg-gradient-to-r from-blue-500 to-purple-500 text-white border-0 hover:from-blue-600 hover:to-purple-600 disabled:from-gray-300 disabled:to-gray-400 transition-all duration-200 hover:scale-105 active:scale-95"
-                    >
-                      {number}
-                    </Button>
-                  ))}
-                </div>
-                
-                <div className="flex gap-2">
-                  <Button
-                    onClick={clearCell}
-                    disabled={!selectedCell}
-                    variant="outline"
-                    className="flex-1 bg-red-500 text-white border-0 hover:bg-red-600 disabled:bg-gray-300 transition-all duration-200"
-                  >
-                    Clear
-                  </Button>
-                  <Button
-                    onClick={resetGame}
-                    variant="outline"
-                    className="flex-1 bg-gradient-to-r from-gray-500 to-gray-600 text-white border-0 hover:from-gray-600 hover:to-gray-700 transition-all duration-200"
-                  >
-                    <RotateCcw className="w-4 h-4 mr-2" />
-                    Reset
-                  </Button>
-                </div>
+              <div className="text-center mb-4">
+                <Badge className="bg-gradient-to-r from-green-500 to-emerald-500 text-white text-lg px-4 py-2">
+                  <Sparkles className="w-5 h-5 mr-2" />
+                  Puzzle Complete!
+                  <Sparkles className="w-5 h-5 ml-2" />
+                </Badge>
               </div>
             )}
-
-            {/* Instructions */}
-            <div className="text-center text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
+            
+            <div className="flex flex-col items-center space-y-6">
+              <SudokuGrid
+                grid={grid}
+                initialGrid={initialGrid}
+                selectedCell={selectedCell}
+                onCellClick={handleCellClick}
+                isComplete={isComplete}
+              />
+              
+              <NumberPad
+                onNumberSelect={handleNumberInput}
+                selectedCell={selectedCell}
+                isComplete={isComplete}
+              />
+              
+              <GameControls
+                onUndo={handleUndo}
+                onErase={handleErase}
+                onHint={handleHint}
+                onRestart={handleRestart}
+                selectedCell={selectedCell}
+                isComplete={isComplete}
+                canUndo={moves.length > 0}
+              />
+            </div>
+            
+            <div className="text-center text-sm text-gray-600 bg-gray-50 p-3 rounded-lg mt-6">
               <p className="font-medium mb-1">How to play:</p>
-              <p>Fill each row and column with numbers 1-{gridSize} without repeating!</p>
+              <p>Fill the 9×9 grid so each row, column, and 3×3 box contains digits 1-9 without repetition!</p>
             </div>
           </CardContent>
         </Card>
